@@ -28,8 +28,8 @@ class BookingView(ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if request.GET.get('date') is not None:
-            date = request.query_params.get('date')
+        if request.GET.get("date") is not None:
+            date = request.query_params.get("date")
         else:
             date = timezone.now().date()
         self.queryset = self.queryset.filter(booking_date=date)
