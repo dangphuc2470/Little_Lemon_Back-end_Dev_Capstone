@@ -1,78 +1,93 @@
-# from django.http import HttpResponse
 from django.shortcuts import render
+from django.utils import timezone
+from django.urls import reverse
+from django.views import View
+
 from .forms import BookingForm
-from .models import Menu
-from django.core import serializers
-from .models import Booking
-from datetime import datetime
-import json
-from django.views.decorators.csrf import csrf_exempt
-from django.http import HttpResponse
+
+import requests, json
+
+import environ
+
+env = environ.Env()
+environ.Env.read_env()
 
 
-# Create your views here.
-def home(request):
-    return render(request, "index.html")
+def get_token():
+    url = 'http://127.0.0.1:8000/api/token/login/'
+    data = {
+        'username': env('USERNAME'),
+        'password': env('PASSWORD')
+    }
+    response = requests.post(url, data=data)
+    response_dict = json.loads(response.text)
+    return response_dict.get('access')
+
+def get_auth_header():
+    token =get_token()
+    return {'Authorization': f'JWT {token}'}
+
+
+def index(request):
+    return render(request, 'restaurant/index.html', {})
 
 
 def about(request):
-    return render(request, "about.html")
+    return render(request, 'restaurant/about.html')
 
 
-def reservations(request):
-    date = request.GET.get("date", datetime.today().date())
-    bookings = Booking.objects.all()
-    booking_json = serializers.serialize("json", bookings)
-    return render(request, "bookings.html", {"bookings": booking_json})
-
-
-def book(request):
-    form = BookingForm()
-    if request.method == "POST":
-        form = BookingForm(request.POST)
-        if form.is_valid():
-            form.save()
-    context = {"form": form}
-    return render(request, "book.html", context)
-
-
-# Add your code here to create new views
 def menu(request):
-    menu_data = Menu.objects.all()
-    main_data = {"menu": menu_data}
-    return render(request, "menu.html", {"menu": main_data})
+    url = f"http://127.0.0.1:8000{reverse('api:menu')}"
+    headers = get_auth_header()
+    response = requests.get(url, headers=headers)
+    return render(request, 'restaurant/menu.html', context={'menu_items': json.loads(response.text)})
 
 
-def display_menu_item(request, pk=None):
-    if pk:
-        menu_item = Menu.objects.get(pk=pk)
-    else:
-        menu_item = ""
-    return render(request, "menu_item.html", {"menu_item": menu_item})
+def menu_item(request, pk):
+    url = f"http://127.0.0.1:8000{reverse('api:menu-detail', kwargs={'pk': pk})}"
+    headers = get_auth_header()
+    response = requests.get(url, headers=headers)
+    return render(request, 'restaurant/menu_item.html', context={'menu_item': json.loads(response.text)})
 
 
-@csrf_exempt
+class Book(View):
+    form_class = BookingForm
+    template_name = 'restaurant/book.html'
+
+    def get(self, request):
+        token = get_token()
+        form = self.form_class()
+        return render(request, self.template_name, {'form': form, 'token': token})
+
+    def get_data_from_form(self, form):
+        data = {
+            'name': form.cleaned_data.get('name'),
+            'no_of_guests': form.cleaned_data.get('no_of_guests'),
+            'booking_date': form.cleaned_data.get('booking_date'),
+        }
+        return data
+
+    def post(self, request):
+        token = get_token()
+        form = self.form_class(request.POST)
+        if form.is_valid():
+            data = self.get_data_from_form(form)
+            headers = get_auth_header()
+            url = f"http://127.0.0.1:8000{reverse('api:bookings')}"
+            response = requests.post(url, data=data, headers=headers)
+            if response.status_code == 201:
+                context = {'form': BookingForm(), 'token': token}
+                return render(request, 'restaurant/book.html', context)
+        context = {'form': form, 'token': token}
+        return render(request, 'restaurant/book.html', )
+
+
 def bookings(request):
-    if request.method == "POST":
-        data = json.load(request)
-        exist = (
-            Booking.objects.filter(reservation_date=data["reservation_date"])
-            .filter(reservation_slot=data["reservation_slot"])
-            .exists()
-        )
-        if exist == False:
-            booking = Booking(
-                first_name=data["first_name"],
-                reservation_date=data["reservation_date"],
-                reservation_slot=data["reservation_slot"],
-            )
-            booking.save()
-        else:
-            return HttpResponse("{'error':1}", content_type="application/json")
-
-    date = request.GET.get("date", datetime.today().date())
-
-    bookings = Booking.objects.all().filter(reservation_date=date)
-    booking_json = serializers.serialize("json", bookings)
-
-    return HttpResponse(booking_json, content_type="application/json")
+    if request.GET.get('date') is None:
+        date = timezone.now().date()
+    else:
+        date = request.GET.get('date')
+    url = f"http://127.0.0.1:8000{reverse('api:bookings')}?date={date}"
+    headers = get_auth_header()
+    response = requests.get(url, headers=headers)
+    return render(request, 'restaurant/bookings.html', context={'bookings': response.text})
