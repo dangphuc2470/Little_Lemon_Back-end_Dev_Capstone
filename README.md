@@ -1,2 +1,2 @@
 # little_lemon_project_coursera
-Coursera Meta Android Course's Capstone Project (Little Lemon Web Application)
+Coursera Meta Back-End Developer Course's Capstone Project (Little Lemon Web Application)
